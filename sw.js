@@ -1,5 +1,5 @@
-/* 책숲 v1.2 offline cache. Published-book links remain external. */
-const CACHE = 'chaeksoop-shell-v1.3.0';
+/* 책숲 v1.4 offline cache. Published-book links remain external. */
+const CACHE = 'chaeksoop-shell-v1.4.0';
 const ASSETS = [
   './',
   './index.html',
