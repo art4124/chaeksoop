@@ -310,6 +310,7 @@
         <button type="button" class="tool-btn" id="font-toggle">A<span>${state.fontSize}px</span></button>
         <button type="button" class="tool-btn" id="favorite-toggle">${icon('bookmark')}<span>${isFavorite(book.id) ? 'Saved' : 'Save'}</span></button>
       </div>
+      <div id="speech-help" class="help-card" role="status" hidden></div>
 
       ${book.paragraphs.map((p, i) => renderParagraph(book, p, i)).join('')}
 
@@ -398,6 +399,11 @@
           </div>
         </div>
 
+        <div class="setting-card">
+          <h3>Korean audio 🔊</h3>
+          <p class="desc" id="speech-diagnostic">${escape(speechDiagnostic || 'To hear Korean offline, install a Korean voice in iPhone Settings → Accessibility → Read & Speak → Voices → Korean.')}</p>
+          <button class="btn primary" type="button" id="test-korean-voice">${icon('sound')} Test voice</button>
+        </div>
         <div class="help-card">
           <b>Offline note:</b> The stories inside 책숲 are stored in the app. Published books still open from their original websites, so those may need internet.
         </div>
@@ -405,56 +411,125 @@
     `;
   }
 
+  // Ignore old speech errors when the reader cancels or replaces an utterance.
+  let speechRun = 0;
+  let currentUtterance = null;
+  let speechDiagnostic = '';
+
   function stopSpeech() {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    speechRun++;
+    const synth = window.speechSynthesis;
+    const hadSpeech = !!currentUtterance || speaking || !!synth?.speaking || !!synth?.pending;
+    currentUtterance = null;
     speaking = false;
     speakSequence = [];
+    if (hadSpeech && synth) synth.cancel();
     const label = $('#speech-label');
     if (label) label.textContent = 'Listen';
   }
 
   function speechVoice() {
     if (!('speechSynthesis' in window)) return null;
-    return window.speechSynthesis.getVoices().find(v => v.lang && v.lang.toLowerCase().startsWith('ko')) || null;
+    // Prefer locally installed Korean voices. iOS otherwise chooses by lang.
+    return window.speechSynthesis.getVoices().find(v => /^ko[-_]/i.test(v.lang || '') && v.localService) || null;
+  }
+
+  function speechFailed(reason) {
+    const code = reason || 'unknown';
+    if (code === 'canceled' || code === 'interrupted') return;
+    console.warn('책숲 speech failed:', code);
+    const message = ['language-unavailable','voice-unavailable','synthesis-unavailable'].includes(code)
+      ? 'Install a Korean voice: iPhone Settings → Accessibility → Read & Speak → Voices → Korean.'
+      : code === 'not-allowed'
+        ? 'Audio was blocked. Tap Hear again or open 책숲 in Safari.'
+        : code === 'audio-busy' || code === 'audio-hardware'
+          ? 'Your speaker is busy. Check volume, connected headphones and other audio.'
+          : 'Korean audio failed. Try adding a Korean voice in iPhone Settings → Accessibility → Read & Speak.';
+    speechDiagnostic = message + ' (' + code + ')';
+    toast('Speech error: ' + code);
+    const help = $('#speech-help');
+    if (help) { help.hidden = false; help.textContent = speechDiagnostic; }
+    const settingsHelp = $('#speech-diagnostic');
+    if (settingsHelp) settingsHelp.textContent = speechDiagnostic;
+  }
+
+  function makeUtterance(text, run) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ko-KR';
+    utterance.rate = Number(state.speechRate) || 0.9;
+    const voice = speechVoice();
+    if (voice) utterance.voice = voice;
+    utterance.onstart = () => {
+      if (run !== speechRun) return;
+      speechDiagnostic = '';
+      const help = $('#speech-help');
+      if (help) help.hidden = true;
+      const settingsHelp = $('#speech-diagnostic');
+      if (settingsHelp) settingsHelp.textContent = 'Korean voice started successfully.';
+    };
+    return utterance;
   }
 
   function speak(text) {
-    if (!('speechSynthesis' in window)) { toast('Speech is not supported in this browser.'); return; }
+    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+      speechFailed('synthesis-unavailable'); return;
+    }
+    stopSpeech();
+    const run = ++speechRun;
     try {
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'ko-KR';
-      utter.rate = Number(state.speechRate) || 0.9;
-      const voice = speechVoice();
-      if (voice) utter.voice = voice;
-      utter.onerror = () => toast('Korean speech is unavailable on this device.');
-      window.speechSynthesis.speak(utter);
-    } catch {
-      toast('Could not start Korean speech.');
+      const utterance = makeUtterance(text, run);
+      currentUtterance = utterance;
+      utterance.onend = () => { if (run === speechRun) currentUtterance = null; };
+      utterance.onerror = e => {
+        if (run !== speechRun) return;
+        currentUtterance = null;
+        speechFailed(e.error);
+      };
+      // Do not delay this call: iOS requires direct user interaction.
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      currentUtterance = null;
+      speechFailed('synthesis-failed');
+      console.warn('Speech exception:', e);
     }
   }
 
   function speakAll() {
     if (speaking) { stopSpeech(); return; }
-    if (!('speechSynthesis' in window)) { toast('Speech is unavailable.'); return; }
     const book = findBook(readerId);
     if (!book) return;
+    if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
+      speechFailed('synthesis-unavailable'); return;
+    }
     stopSpeech();
+    const run = ++speechRun;
     speaking = true;
     speakSequence = book.paragraphs.map(p => p.ko);
     const label = $('#speech-label');
     if (label) label.textContent = 'Stop';
-
     const next = () => {
-      if (!speaking || !speakSequence.length) { stopSpeech(); return; }
-      const utter = new SpeechSynthesisUtterance(speakSequence.shift());
-      utter.lang = 'ko-KR';
-      utter.rate = Number(state.speechRate) || 0.9;
-      const voice = speechVoice();
-      if (voice) utter.voice = voice;
-      utter.onend = next;
-      utter.onerror = () => { stopSpeech(); toast('Speech stopped.'); };
-      window.speechSynthesis.speak(utter);
+      if (run !== speechRun || !speaking) return;
+      if (!speakSequence.length) { stopSpeech(); return; }
+      try {
+        const utterance = makeUtterance(speakSequence.shift(), run);
+        currentUtterance = utterance;
+        utterance.onend = () => {
+          if (run !== speechRun) return;
+          currentUtterance = null;
+          next();
+        };
+        utterance.onerror = event => {
+          if (run !== speechRun) return;
+          const code = event.error;
+          stopSpeech();
+          speechFailed(code);
+        };
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        stopSpeech();
+        speechFailed('synthesis-failed');
+        console.warn('Story speech exception:', e);
+      }
     };
     next();
   }
@@ -678,6 +753,9 @@
         break;
       case 'read-aloud':
         speakAll();
+        break;
+      case 'test-korean-voice':
+        speak('안녕하세요. 책숲에서 한국어를 읽어요.');
         break;
       case 'font-toggle':
         cycleFontSize();
