@@ -211,7 +211,9 @@
     const list = allBooks().filter(libraryBookFilter);
     const holder = $('#library-results');
     const count = $('#library-count');
-    if (count) count.textContent = `${list.length} books`;
+    if (count) count.textContent = state.libraryKind === 'all' && state.libraryLevel === 'all' && !searchQuery
+      ? `All ${list.length} books`
+      : `${list.length} books`;
     if (!holder) return;
     holder.innerHTML = list.length ? `<div class="story-list">${list.map(book => bookCard(book)).join('')}</div>` : `
       <div class="empty-state">
@@ -315,7 +317,7 @@
       ${book.paragraphs.map((p, i) => renderParagraph(book, p, i)).join('')}
 
       <div class="reader-footer">
-        <button type="button" class="big-btn primary" id="mark-finished">${finished ? `${icon('check')} Finished` : 'Mark finished'}</button>
+        <button type="button" class="big-btn ${finished ? 'outline' : 'primary'}" id="mark-finished">${finished ? '↩ Mark as unfinished' : `${icon('check')} Mark finished`}</button>
       </div>
     `;
 
@@ -401,7 +403,7 @@
 
         <div class="setting-card">
           <h3>Korean audio 🔊</h3>
-          <p class="desc" id="speech-diagnostic">${escape(speechDiagnostic || 'To hear Korean offline, install a Korean voice in iPhone Settings → Accessibility → Read & Speak → Voices → Korean.')}</p>
+          <p class="desc" id="speech-diagnostic">${escape(speechDiagnostic || 'Korean voice detected by iOS? Tap Test voice. 책숲 requests the media audio channel so it can play even in Silent Mode where iOS supports it.')}</p>
           <button class="btn primary" type="button" id="test-korean-voice">${icon('sound')} Test voice</button>
         </div>
         <div class="help-card">
@@ -424,8 +426,32 @@
     speaking = false;
     speakSequence = [];
     if (hadSpeech && synth) synth.cancel();
+    restoreAudioChannel();
     const label = $('#speech-label');
     if (label) label.textContent = 'Listen';
+  }
+
+  // iPhone's silent switch can mute Web Speech even at high media volume.
+  // Request the media playback category before starting user-initiated speech.
+  // This API is progressive enhancement: older browsers may not support it.
+  function useMediaAudioChannel() {
+    try {
+      if (navigator.audioSession && navigator.audioSession.type !== 'playback') {
+        navigator.audioSession.type = 'playback';
+      }
+    } catch (error) {
+      console.warn('Unable to set playback audio session:', error);
+    }
+  }
+
+  function restoreAudioChannel() {
+    try {
+      if (navigator.audioSession && navigator.audioSession.type === 'playback') {
+        navigator.audioSession.type = 'auto';
+      }
+    } catch (error) {
+      console.warn('Unable to reset playback audio session:', error);
+    }
   }
 
   function speechVoice() {
@@ -439,12 +465,12 @@
     if (code === 'canceled' || code === 'interrupted') return;
     console.warn('책숲 speech failed:', code);
     const message = ['language-unavailable','voice-unavailable','synthesis-unavailable'].includes(code)
-      ? 'Install a Korean voice: iPhone Settings → Accessibility → Read & Speak → Voices → Korean.'
+      ? 'The browser could not start Korean speech. Check the selected Korean voice or try Safari.'
       : code === 'not-allowed'
-        ? 'Audio was blocked. Tap Hear again or open 책숲 in Safari.'
+        ? 'iOS blocked audio. Tap Hear again after opening the app directly.'
         : code === 'audio-busy' || code === 'audio-hardware'
-          ? 'Your speaker is busy. Check volume, connected headphones and other audio.'
-          : 'Korean audio failed. Try adding a Korean voice in iPhone Settings → Accessibility → Read & Speak.';
+          ? 'Your speaker is busy. Check connected headphones and other audio.'
+          : 'Korean speech did not start. If the iPhone is in Silent Mode, try turning it off; the browser may restrict speech audio.';
     speechDiagnostic = message + ' (' + code + ')';
     toast('Speech error: ' + code);
     const help = $('#speech-help');
@@ -475,20 +501,27 @@
       speechFailed('synthesis-unavailable'); return;
     }
     stopSpeech();
+    useMediaAudioChannel();
     const run = ++speechRun;
     try {
       const utterance = makeUtterance(text, run);
       currentUtterance = utterance;
-      utterance.onend = () => { if (run === speechRun) currentUtterance = null; };
+      utterance.onend = () => {
+        if (run !== speechRun) return;
+        currentUtterance = null;
+        restoreAudioChannel();
+      };
       utterance.onerror = e => {
         if (run !== speechRun) return;
         currentUtterance = null;
+        restoreAudioChannel();
         speechFailed(e.error);
       };
       // Do not delay this call: iOS requires direct user interaction.
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       currentUtterance = null;
+      restoreAudioChannel();
       speechFailed('synthesis-failed');
       console.warn('Speech exception:', e);
     }
@@ -502,6 +535,7 @@
       speechFailed('synthesis-unavailable'); return;
     }
     stopSpeech();
+    useMediaAudioChannel();
     const run = ++speechRun;
     speaking = true;
     speakSequence = book.paragraphs.map(p => p.ko);
@@ -683,6 +717,11 @@
     }
     if (target.dataset.filter) {
       state.libraryKind = target.dataset.filter;
+      // Selecting All must clear BOTH hidden constraints.
+      if (state.libraryKind === 'all') {
+        state.libraryLevel = 'all';
+        searchQuery = '';
+      }
       save();
       renderLibrary();
       return;
@@ -771,12 +810,19 @@
       }
       case 'mark-finished': {
         const id = readerId;
-        if (!isComplete(id)) state.complete.push(id);
-        state.progress[id] = 100;
-        markDay();
+        const wasFinished = isComplete(id);
+        if (wasFinished) {
+          state.complete = state.complete.filter(bookId => bookId !== id);
+          state.progress[id] = 0;
+          state.positions[id] = 0;
+        } else {
+          state.complete.push(id);
+          state.progress[id] = 100;
+          markDay();
+        }
         save();
         renderReader(findBook(id));
-        toast('Story finished! 잘했어요!');
+        toast(wasFinished ? 'Marked as unfinished.' : 'Story finished! 잘했어요!');
         break;
       }
       case 'save-word': {
