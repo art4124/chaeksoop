@@ -59,6 +59,8 @@
   const dateKey = () => new Date().toLocaleDateString('en-CA');
 
   let routeName = 'home';
+  let readingReturnRoute = 'library';
+  let displayedBookId = null;
   let readerId = null;
   let vocabSelected = null;
   let searchQuery = '';
@@ -90,7 +92,10 @@
     }
   }
 
-  function goto(path) { location.hash = '#' + path; }
+  function goto(path) {
+    if (path.startsWith('read/')) readingReturnRoute = routeName === 'home' ? 'home' : 'library';
+    location.hash = '#' + path;
+  }
 
   function setTheme() {
     document.body.classList.toggle('dark', state.theme === 'dark');
@@ -292,7 +297,7 @@
 
     screen.innerHTML = `
       <div class="reader-head">
-        <button type="button" class="circle-btn" data-go="library" aria-label="Back to library">${icon('arrow')}</button>
+        <button type="button" class="circle-btn" data-go="${readingReturnRoute}" aria-label="Back">${icon('arrow')}</button>
         <div class="reader-title">
           <h1 lang="ko">${escape(book.title)}</h1>
           <p>${levels[book.level]} · ${readingTime(book)} min · ${finished ? 'Finished' : progressLabel(book)}</p>
@@ -519,6 +524,7 @@
     if (!title) { toast('Please add a title.'); return; }
     if (text.length < 10) { toast('Please paste a longer Korean story.'); return; }
     if (text.length > 100000) { toast('This file is too large.'); return; }
+    if (state.imported.length >= 100) { toast('Limit of 100 imported books. Export a backup first.'); return; }
     const paragraphs = text.split(/\n\s*\n/g).map(p => p.trim()).filter(Boolean).flatMap(p => p.length > 1200 ? (p.match(/[\s\S]{1,1100}/g) || []) : [p]);
     const book = {
       id: 'import-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
@@ -566,6 +572,7 @@
     if (page === 'read') {
       const book = findBook(parts[1]);
       if (readable(book)) {
+        if (displayedBookId !== book.id) { visibleTrans.clear(); displayedBookId = book.id; }
         routeName = 'read';
         renderReader(book);
         return;
@@ -621,8 +628,21 @@
     }
     if (target.dataset.translateOne !== undefined) {
       const index = Number(target.dataset.translateOne);
-      visibleTrans.has(index) ? visibleTrans.delete(index) : visibleTrans.add(index);
-      renderReader(findBook(readerId));
+      const card = target.closest('.reader-card');
+      const paragraph = findBook(readerId)?.paragraphs?.[index];
+      if (!card || !paragraph?.en) return;
+      if (visibleTrans.has(index)) {
+        visibleTrans.delete(index);
+        card.querySelector('.reader-translation')?.remove();
+        target.textContent = 'Show English';
+      } else {
+        visibleTrans.add(index);
+        const translation = document.createElement('div');
+        translation.className = 'reader-translation';
+        translation.textContent = paragraph.en;
+        card.querySelector('.korean').after(translation);
+        target.textContent = 'Hide English';
+      }
       return;
     }
     if (target.dataset.speakOne !== undefined) {
@@ -661,13 +681,13 @@
         break;
       case 'font-toggle':
         cycleFontSize();
-        renderReader(findBook(readerId));
+        target.querySelector('span').textContent = state.fontSize + 'px';
         break;
       case 'favorite-toggle': {
         const id = readerId;
         state.favorites = isFavorite(id) ? state.favorites.filter(x => x !== id) : [...state.favorites, id];
         save();
-        renderReader(findBook(id));
+        target.querySelector('span').textContent = isFavorite(id) ? 'Saved' : 'Save';
         toast(isFavorite(id) ? 'Saved.' : 'Removed.');
         break;
       }
@@ -725,7 +745,8 @@
       state.fontSize = Number(event.target.value);
       save();
       setTheme();
-      renderSettings();
+      const label = document.querySelector('label[for="setting-font"]');
+      if (label) label.textContent = 'Text size · ' + state.fontSize + 'px';
     }
   });
 
