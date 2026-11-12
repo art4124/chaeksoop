@@ -471,7 +471,7 @@
         <p class="flashcard-edit-word" lang="ko">${escape(word)}</p>
         <label class="flashcard-edit-label" for="edit-word-meaning">Translation</label>
         <input id="edit-word-meaning" type="text" maxlength="180" value="${attr(entry.meaning || '')}" placeholder="Type the English meaning" autocomplete="off">
-        <button type="button" class="btn primary full" id="save-word-meaning" data-word="${attr(word)}">Save meaning</button>
+        <button type="button" class="btn primary full" id="save-word-meaning" data-edit-target="${attr(word)}">Save meaning</button>
       </div>
     `;
     $('#word-dialog').showModal();
@@ -1023,7 +1023,7 @@
         break;
       }
       case 'save-word-meaning': {
-        const word = target.dataset.word;
+        const word = target.dataset.editTarget;
         const meaning = ($('#edit-word-meaning')?.value || '').trim();
         if (!meaning) { toast('Please enter the English meaning.'); break; }
         if (!state.words[word]) { $('#word-dialog').close(); break; }
