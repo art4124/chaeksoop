@@ -199,6 +199,27 @@ small{font-size:12px}
   .flashcard-inner{transition-duration:0.01ms}
 }
 
+
+/* Extendable grammar study notes inside the existing Words tab. */
+.grammar-section{margin-top:32px;padding-top:26px;border-top:1px solid var(--line)}
+.grammar-header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.grammar-header h2{font-size:22px;margin:7px 0 6px}
+.grammar-header .btn{flex:none}
+.grammar-empty{padding:20px 18px;border-radius:20px;background:var(--soft);font-size:14px;color:var(--muted)}
+.grammar-list{display:grid;gap:12px}
+.grammar-note{padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow)}
+.grammar-note h3{font-size:18px;margin:0 0 9px}
+.grammar-note p{white-space:pre-wrap;line-height:1.65;font-size:15px;color:var(--muted);overflow-wrap:anywhere}
+.grammar-note .row-buttons{margin-top:14px}
+.grammar-example{padding:13px 15px;background:var(--soft);border-radius:15px;white-space:pre-wrap;line-height:1.7;font-size:16px}
+.grammar-field{display:block;margin:12px 0;color:var(--ink);font-size:14px;font-weight:750}
+.grammar-field input,.grammar-field textarea{
+  width:100%;display:block;margin-top:7px;padding:12px 14px;border-radius:15px;border:1px solid var(--line);
+  background:var(--paper);color:var(--ink);font:inherit;font-weight:400;line-height:1.55
+}
+.grammar-field textarea{resize:vertical}
+@media(max-width:390px){.grammar-header{align-items:flex-start}.grammar-header .btn{width:100%}}
+
 .setting-grid{grid-template-columns:1fr;gap:12px}
 .setting-card{padding:16px}
 .setting-card label{display:block;font-size:14px;font-weight:700;margin-bottom:8px}
