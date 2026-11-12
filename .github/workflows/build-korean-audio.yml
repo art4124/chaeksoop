@@ -36,5 +36,16 @@ jobs:
           git add audio
           if ! git diff --cached --quiet; then
             git commit -m "Add static Korean narration files [skip ci]"
-            git push
+            # Preserve intervening app changes. The old workflow failed when
+            # GitHub rejected a non-fast-forward push during audio generation.
+            for attempt in 1 2 3 4 5; do
+              git fetch origin main
+              git rebase origin/main
+              if git push origin HEAD:main; then
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "Could not publish Korean audio after five attempts" >&2
+            exit 1
           fi
