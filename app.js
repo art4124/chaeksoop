@@ -338,7 +338,7 @@
   const KO_CODAS = ['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
   const KO_CODA_SOUNDS = {'ㄱ':'k','ㄲ':'k','ㄳ':'k','ㄴ':'n','ㄵ':'n','ㄶ':'n','ㄷ':'t','ㄹ':'l','ㄺ':'k','ㄻ':'m','ㄼ':'p','ㄽ':'l','ㄾ':'l','ㄿ':'p','ㅀ':'l','ㅁ':'m','ㅂ':'p','ㅄ':'p','ㅅ':'t','ㅆ':'t','ㅇ':'ng','ㅈ':'t','ㅊ':'t','ㅋ':'k','ㅌ':'t','ㅍ':'p','ㅎ':'t'};
   const KO_ONSET_JAMO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
-  const KO_SPLIT_CODAS = {'ㄳ':['ㄱ','ㄱ'],'ㄵ':['ㄴ','ㅈ'],'ㄶ':['ㄴ','ㅎ'],'ㄺ':['ㄹ','ㄱ'],'ㄻ':['ㄹ','ㅁ'],'ㄼ':['ㄹ','ㅂ'],'ㄽ':['ㄹ','ㅅ'],'ㄾ':['ㄹ','ㅌ'],'ㄿ':['ㄹ','ㅍ'],'ㅀ':['ㄹ','ㅎ'],'ㅄ':['ㅂ','ㅅ']};
+  const KO_SPLIT_CODAS = {'ㄳ':['ㄱ','ㅅ'],'ㄵ':['ㄴ','ㅈ'],'ㄶ':['ㄴ','ㅎ'],'ㄺ':['ㄹ','ㄱ'],'ㄻ':['ㄹ','ㅁ'],'ㄼ':['ㄹ','ㅂ'],'ㄽ':['ㄹ','ㅅ'],'ㄾ':['ㄹ','ㅌ'],'ㄿ':['ㄹ','ㅍ'],'ㅀ':['ㄹ','ㅎ'],'ㅄ':['ㅂ','ㅅ']};
 
   function romanizeKorean(input) {
     const syllables = Array.from(String(input || '').normalize('NFC')).map(letter => {
@@ -618,8 +618,7 @@
     if (help) { help.hidden = false; help.textContent = speechDiagnostic; }
     const settingsHelp = $('#speech-diagnostic');
     if (settingsHelp) settingsHelp.textContent = speechDiagnostic;
-    const wordStatus = $('#word-audio-status');
-    if (wordStatus) wordStatus.textContent = 'Audio error: ' + code + '. Try opening 책숲 while online.';
+    showWordAudioStatus('Audio error: ' + code + '. Try opening 책숲 while online.');
   }
 
   function makeUtterance(text, run) {
@@ -640,8 +639,10 @@
   }
 
   function showWordAudioStatus(message) {
-    const status = $('#word-audio-status');
-    if (status) status.textContent = message;
+    const modal = $('#word-audio-status');
+    const flashcard = $('#flashcard-audio-status');
+    if (modal) modal.textContent = message;
+    if (flashcard) flashcard.textContent = message;
   }
 
   function playRecorded(path, fullStory = false, wordText = null) {
@@ -787,7 +788,7 @@
           <button class="circle-btn" type="button" data-close-dialog="word-dialog" aria-label="Close">${icon('close')}</button>
         </div>
         <h2 id="word-heading" lang="ko">${escape(token)}</h2>
-        <p class="meaning">${gloss ? escape(gloss.meaning) : 'Not in this story glossary yet.'}</p>
+        <p class="meaning">${entry?.meaning ? escape(entry.meaning) : gloss ? escape(gloss.meaning) : 'Not in this story glossary yet.'}</p>
         ${gloss?.note ? `<p class="note">${escape(gloss.note)}</p>` : ''}
         <div class="context" lang="ko">${escape(paragraph || '')}</div>
         <div class="word-actions">
