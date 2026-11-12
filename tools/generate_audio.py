@@ -53,7 +53,7 @@ async def save_clip(text, path, sem):
 
 async def main():
     books = load_stories()
-    audio_map = {"version": 1, "paragraphs": {}, "complete": {}, "words": {}, "test": "./audio/test.mp3"}
+    audio_map = {"version": 2, "paragraphs": {}, "complete": {}, "words": {}, "test": "./audio/test.mp3"}
     work = []
     test = "안녕하세요. 책숲에서 한국어를 읽어요."
     work.append((test, AUDIO / "test.mp3"))
@@ -73,6 +73,14 @@ async def main():
         full = f"./audio/{ident}/full.mp3"
         audio_map["complete"][ident] = full
         work.append(("\n\n".join(parts), AUDIO / ident / "full.mp3"))
+        # Every tappable Korean word in the actual story must have an MP3.
+        # Previously only glossary headwords were recorded; inflected forms
+        # such as '토요일이에요' and '비가' silently fell back to iOS TTS.
+        for passage in parts:
+            for chunk in passage.split():
+                displayed_word = re.sub(r"^[^가-힣]+|[^가-힣]+$", "", chunk)
+                if re.search(r"[가-힣]", displayed_word):
+                    words.add(displayed_word)
         for item in book.get("glossary", []):
             word = str(item.get("word", "")).strip()
             if word:
