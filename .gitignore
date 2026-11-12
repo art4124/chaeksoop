@@ -1,0 +1,22 @@
+# Local editor/OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Python tool caches and local environment
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local build/log output and credentials
+node_modules/
+*.log
+.env
+.env.*
+!.env.example
+
+# Do not ignore audio/, assets/, or generated narration referenced by the app.
