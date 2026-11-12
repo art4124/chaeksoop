@@ -403,8 +403,13 @@
 
         <div class="setting-card">
           <h3>Korean audio 🔊</h3>
-          <p class="desc" id="speech-diagnostic">${escape(speechDiagnostic || 'Korean voice detected by iOS? Tap Test voice. 책숲 requests the media audio channel so it can play even in Silent Mode where iOS supports it.')}</p>
+          <p class="desc" id="speech-diagnostic">${escape(speechDiagnostic || 'Built-in books use recorded Korean audio that plays like music, even with the iPhone in Silent Mode. Tap Test voice.')}</p>
           <button class="btn primary" type="button" id="test-korean-voice">${icon('sound')} Test voice</button>
+        </div>
+        <div class="setting-card">
+          <h3>Offline Korean audio</h3>
+          <p class="desc" id="offline-audio-status">Save built-in story audio once to listen without internet.</p>
+          <button class="btn" type="button" id="cache-korean-audio">${icon('download')} Save offline audio</button>
         </div>
         <div class="help-card">
           <b>Offline note:</b> The stories inside 책숲 are stored in the app. Published books still open from their original websites, so those may need internet.
@@ -416,10 +421,18 @@
   // Ignore old speech errors when the reader cancels or replaces an utterance.
   let speechRun = 0;
   let currentUtterance = null;
+  let currentAudio = null;
   let speechDiagnostic = '';
 
   function stopSpeech() {
     speechRun++;
+    if (currentAudio) {
+      const audio = currentAudio;
+      currentAudio = null;
+      audio.onended = null;
+      audio.onerror = null;
+      try { audio.pause(); } catch (_) {}
+    }
     const synth = window.speechSynthesis;
     const hadSpeech = !!currentUtterance || speaking || !!synth?.speaking || !!synth?.pending;
     currentUtterance = null;
@@ -464,7 +477,9 @@
     const code = reason || 'unknown';
     if (code === 'canceled' || code === 'interrupted') return;
     console.warn('책숲 speech failed:', code);
-    const message = ['language-unavailable','voice-unavailable','synthesis-unavailable'].includes(code)
+    const message = code === 'recording-unavailable'
+      ? 'Recorded Korean audio is not ready yet. Connect to the internet and save the offline audio in Settings.'
+      : ['language-unavailable','voice-unavailable','synthesis-unavailable'].includes(code)
       ? 'The browser could not start Korean speech. Check the selected Korean voice or try Safari.'
       : code === 'not-allowed'
         ? 'iOS blocked audio. Tap Hear again after opening the app directly.'
@@ -496,7 +511,50 @@
     return utterance;
   }
 
-  function speak(text) {
+  function playRecorded(path, fullStory = false) {
+    if (!path || !('Audio' in window)) return false;
+    stopSpeech();
+    useMediaAudioChannel();
+    const run = ++speechRun;
+    try {
+      const audio = new Audio(new URL(path, document.baseURI).href);
+      audio.preload = 'auto';
+      audio.volume = 1;
+      currentAudio = audio;
+      speaking = fullStory;
+      const label = $('#speech-label');
+      if (label && fullStory) label.textContent = 'Stop';
+      audio.onended = () => {
+        if (run !== speechRun) return;
+        currentAudio = null;
+        speaking = false;
+        if (label) label.textContent = 'Listen';
+        restoreAudioChannel();
+      };
+      audio.onerror = () => {
+        if (run !== speechRun) return;
+        stopSpeech();
+        speechFailed('recording-unavailable');
+      };
+      const playing = audio.play();
+      if (playing && typeof playing.catch === 'function') {
+        playing.catch(error => {
+          if (run !== speechRun) return;
+          stopSpeech();
+          speechFailed(error?.name === 'NotAllowedError' ? 'not-allowed' : 'recording-unavailable');
+        });
+      }
+      return true;
+    } catch (error) {
+      stopSpeech();
+      console.warn('Korean recorded audio playback failed:', error);
+      speechFailed('recording-unavailable');
+      return true;
+    }
+  }
+
+  function speak(text, recordedPath = null) {
+    if (recordedPath && playRecorded(recordedPath)) return;
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
       speechFailed('synthesis-unavailable'); return;
     }
@@ -531,6 +589,8 @@
     if (speaking) { stopSpeech(); return; }
     const book = findBook(readerId);
     if (!book) return;
+    const recorded = window.CHAEKSOOP_AUDIO?.complete?.[book.id];
+    if (recorded && playRecorded(recorded, true)) return;
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
       speechFailed('synthesis-unavailable'); return;
     }
@@ -762,7 +822,10 @@
     if (target.dataset.speakOne !== undefined) {
       const book = findBook(readerId);
       const paragraph = book?.paragraphs?.[Number(target.dataset.speakOne)];
-      if (paragraph) speak(paragraph.ko);
+      if (paragraph) {
+        const recorded = window.CHAEKSOOP_AUDIO?.paragraphs?.[book.id]?.[Number(target.dataset.speakOne)] || null;
+        speak(paragraph.ko, recorded);
+      }
       return;
     }
     if (target.dataset.removeWord) {
@@ -794,7 +857,20 @@
         speakAll();
         break;
       case 'test-korean-voice':
-        speak('안녕하세요. 책숲에서 한국어를 읽어요.');
+        speak('안녕하세요. 책숲에서 한국어를 읽어요.', window.CHAEKSOOP_AUDIO?.test || null);
+        break;
+      case 'cache-korean-audio':
+        if (!('serviceWorker' in navigator)) {
+          toast('Offline caching is unavailable in this browser.');
+          break;
+        }
+        navigator.serviceWorker.ready.then(registration => {
+          const worker = registration.active || navigator.serviceWorker.controller;
+          if (!worker) throw new Error('Offline worker is not running');
+          worker.postMessage({type:'CACHE_KOREAN_AUDIO'});
+          const status = $('#offline-audio-status');
+          if (status) status.textContent = 'Saving audio… Keep 책숲 open and connected.';
+        }).catch(() => toast('Could not start audio download. Try again online.'));
         break;
       case 'font-toggle':
         cycleFontSize();
@@ -842,7 +918,10 @@
         break;
       }
       case 'speak-word':
-        if (vocabSelected) speak(vocabSelected.token);
+        if (vocabSelected) {
+          const recorded = window.CHAEKSOOP_AUDIO?.words?.[vocabSelected.token] || null;
+          speak(vocabSelected.token, recorded);
+        }
         break;
       case 'backup-export':
         exportBackup();
@@ -916,6 +995,25 @@
     event.preventDefault();
     handleImport();
   });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', event => {
+      const detail = event.data;
+      if (!detail || !detail.type?.startsWith('KOREAN_AUDIO_')) return;
+      const status = $('#offline-audio-status');
+      if (detail.type === 'KOREAN_AUDIO_PROGRESS') {
+        if (status) status.textContent = `Saving Korean audio: ${detail.done} of ${detail.total}`;
+      } else if (detail.type === 'KOREAN_AUDIO_COMPLETE') {
+        if (status) status.textContent = detail.failed
+          ? `Saved ${detail.done} audio clips. ${detail.failed} could not be saved; try again online.`
+          : `All ${detail.done} Korean audio clips are saved offline! 🐰`;
+        toast(detail.failed ? 'Some audio files need another download.' : 'Offline Korean audio is ready!');
+      } else if (detail.type === 'KOREAN_AUDIO_ERROR') {
+        if (status) status.textContent = detail.message || 'Could not save audio. Try again online.';
+        toast('Offline audio download failed.');
+      }
+    });
+  }
 
   window.addEventListener('hashchange', render);
   window.addEventListener('scroll', trackScroll, {passive:true});
