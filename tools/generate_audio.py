@@ -16,7 +16,7 @@ from gtts import gTTS
 ROOT = Path(__file__).resolve().parent.parent
 AUDIO = ROOT / "audio"
 STORY_FILE = ROOT / "stories.js"
-VOICE = "ko-KR-SunHiNeural"
+VOICE = "ko-KR-SunHiNeural"  # Korean voice used only during audio file build
 CONCURRENCY = 3
 
 def load_stories():
