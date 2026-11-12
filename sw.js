@@ -1,5 +1,5 @@
-/* 책숲 v1.7: offline reader and Korean MP3 audio, including iOS byte-range playback. */
-const SHELL_CACHE = 'chaeksoop-shell-v1.7.0';
+/* 책숲 v1.8: offline reader and Korean MP3 audio, including iOS byte-range playback. */
+const SHELL_CACHE = 'chaeksoop-shell-v1.8.0';
 const AUDIO_CACHE = 'chaeksoop-korean-audio-v1';
 const SHELL = [
   './', './index.html', './styles.css', './app.js', './stories.js',
