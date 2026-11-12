@@ -36,6 +36,7 @@
     favorites:[],
     complete:[],
     words:{},
+    grammarNotes:[],
     days:[],
     imported:[]
   };
@@ -43,6 +44,7 @@
   let state;
   try { state = {...initial, ...JSON.parse(localStorage.getItem(KEY) || '{}')}; }
   catch { state = {...initial}; }
+  if (!Array.isArray(state.grammarNotes)) state.grammarNotes = [];
 
   const $ = sel => document.querySelector(sel);
   const screen = $('#screen');
@@ -387,6 +389,56 @@
     return result;
   }
 
+  function renderGrammarNotesSection() {
+    const notes = state.grammarNotes || [];
+    return `
+      <section class="grammar-section" aria-labelledby="grammar-heading">
+        <div class="grammar-header">
+          <div>
+            <span class="eyebrow">Study notes</span>
+            <h2 id="grammar-heading">문법 노트 · Grammar notes</h2>
+            <p class="section-intro">Save useful grammar patterns, explanations, and examples.</p>
+          </div>
+          <button class="btn primary" id="add-grammar-note" type="button">+ Add note</button>
+        </div>
+        ${notes.length ? `<div class="grammar-list">${notes.map(note => `
+          <article class="grammar-note">
+            <h3>${escape(note.title)}</h3>
+            <p>${escape(note.explanation)}</p>
+            ${note.example ? `<div class="grammar-example" lang="ko">${escape(note.example)}</div>` : ''}
+            <div class="row-buttons">
+              <button class="btn small outline" type="button" data-edit-grammar="${attr(note.id)}">Edit</button>
+              <button class="btn small outline" type="button" data-delete-grammar="${attr(note.id)}">Delete</button>
+            </div>
+          </article>
+        `).join('')}</div>` : `<p class="grammar-empty">No grammar notes yet. Add a Korean pattern when you're ready.</p>`}
+      </section>
+    `;
+  }
+
+  function openGrammarNote(id = null) {
+    const note = state.grammarNotes.find(item => item.id === id) || null;
+    $('#word-content').innerHTML = `
+      <div class="word-detail">
+        <div class="dialog-top">
+          <h2 id="word-heading">${note ? 'Edit grammar note' : 'Add grammar note'}</h2>
+          <button type="button" class="circle-btn" data-close-dialog="word-dialog" aria-label="Close">${icon('close')}</button>
+        </div>
+        <label class="grammar-field">Pattern / title
+          <input id="grammar-title" maxlength="100" value="${attr(note?.title || '')}" placeholder="e.g. -고 싶어요">
+        </label>
+        <label class="grammar-field">Explanation
+          <textarea id="grammar-explanation" maxlength="2000" rows="4" placeholder="What does this grammar mean?">${escape(note?.explanation || '')}</textarea>
+        </label>
+        <label class="grammar-field">Korean example (optional)
+          <textarea id="grammar-example" maxlength="400" rows="2" lang="ko" placeholder="e.g. 한국에 가고 싶어요.">${escape(note?.example || '')}</textarea>
+        </label>
+        <button type="button" class="btn primary full" id="save-grammar-note" data-note-id="${attr(note?.id || '')}">Save note</button>
+      </div>
+    `;
+    $('#word-dialog').showModal();
+  }
+
   function renderWords() {
     const words = Object.entries(state.words).sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
     screen.innerHTML = `
@@ -417,6 +469,7 @@
           <p>Open a story and tap a word to save your first flashcard.</p>
           <button type="button" class="btn primary" data-go="library">Go to books</button>
         </div>`}
+      ${renderGrammarNotesSection()}
     `;
   }
 
@@ -820,6 +873,9 @@
     const next = {...initial, ...data.state};
     if (!Array.isArray(next.imported) || !Array.isArray(next.complete) || typeof next.words !== 'object') throw new Error('Backup is missing required data');
     next.imported = next.imported.filter(b => b && typeof b.title === 'string' && Array.isArray(b.paragraphs) && b.paragraphs.every(p => typeof p.ko === 'string')).slice(0, 200);
+    next.grammarNotes = Array.isArray(next.grammarNotes)
+      ? next.grammarNotes.filter(n => n && typeof n.id === 'string' && typeof n.title === 'string' && typeof n.explanation === 'string').slice(0, 200)
+      : [];
     return next;
   }
 
@@ -981,6 +1037,19 @@
       editMeaning(target.dataset.editMeaning);
       return;
     }
+    if (target.dataset.editGrammar) {
+      openGrammarNote(target.dataset.editGrammar);
+      return;
+    }
+    if (target.dataset.deleteGrammar) {
+      const id = target.dataset.deleteGrammar;
+      if (!state.grammarNotes.some(n => n.id === id) || !window.confirm('Delete this grammar note?')) return;
+      state.grammarNotes = state.grammarNotes.filter(n => n.id !== id);
+      save();
+      renderWords();
+      toast('Grammar note deleted.');
+      return;
+    }
     if (target.dataset.removeWord) {
       delete state.words[target.dataset.removeWord];
       save();
@@ -990,6 +1059,30 @@
     }
 
     switch (target.id) {
+      case 'add-grammar-note':
+        openGrammarNote();
+        break;
+      case 'save-grammar-note': {
+        const title = ($('#grammar-title')?.value || '').trim();
+        const explanation = ($('#grammar-explanation')?.value || '').trim();
+        const example = ($('#grammar-example')?.value || '').trim();
+        if (!title || !explanation) { toast('Add a title and explanation.'); break; }
+        const id = target.dataset.noteId;
+        const existing = state.grammarNotes.find(n => n.id === id);
+        if (existing) Object.assign(existing, {title, explanation, example, updatedAt:Date.now()});
+        else {
+          if (state.grammarNotes.length >= 200) { toast('You have reached the 200-note limit. Export a backup.'); break; }
+          state.grammarNotes.unshift({
+            id:'grammar-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+            title, explanation, example, updatedAt:Date.now()
+          });
+        }
+        save();
+        $('#word-dialog').close();
+        renderWords();
+        toast(existing ? 'Grammar note updated.' : 'Grammar note saved.');
+        break;
+      }
       case 'open-flashcards':
         flashcardIndex = 0;
         flashcardFlipped = false;
