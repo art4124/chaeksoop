@@ -492,6 +492,8 @@
     if (help) { help.hidden = false; help.textContent = speechDiagnostic; }
     const settingsHelp = $('#speech-diagnostic');
     if (settingsHelp) settingsHelp.textContent = speechDiagnostic;
+    const wordStatus = $('#word-audio-status');
+    if (wordStatus) wordStatus.textContent = 'Audio error: ' + code + '. Try opening 책숲 while online.';
   }
 
   function makeUtterance(text, run) {
@@ -511,7 +513,12 @@
     return utterance;
   }
 
-  function playRecorded(path, fullStory = false) {
+  function showWordAudioStatus(message) {
+    const status = $('#word-audio-status');
+    if (status) status.textContent = message;
+  }
+
+  function playRecorded(path, fullStory = false, wordText = null) {
     if (!path || !('Audio' in window)) return false;
     stopSpeech();
     useMediaAudioChannel();
@@ -524,8 +531,12 @@
       speaking = fullStory;
       const label = $('#speech-label');
       if (label && fullStory) label.textContent = 'Stop';
+      audio.onplaying = () => {
+        if (run === speechRun && wordText) showWordAudioStatus('🔊 Playing: ' + wordText);
+      };
       audio.onended = () => {
         if (run !== speechRun) return;
+        if (wordText) showWordAudioStatus('✓ Finished playing: ' + wordText);
         currentAudio = null;
         speaking = false;
         if (label) label.textContent = 'Listen';
@@ -534,6 +545,7 @@
       audio.onerror = () => {
         if (run !== speechRun) return;
         stopSpeech();
+        if (wordText) showWordAudioStatus('Could not load this word recording. Reopen 책숲 online and try again.');
         speechFailed('recording-unavailable');
       };
       const playing = audio.play();
@@ -553,8 +565,8 @@
     }
   }
 
-  function speak(text, recordedPath = null) {
-    if (recordedPath && playRecorded(recordedPath)) return;
+  function speak(text, recordedPath = null, wordText = null) {
+    if (recordedPath && playRecorded(recordedPath, false, wordText)) return;
     if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) {
       speechFailed('synthesis-unavailable'); return;
     }
@@ -656,6 +668,7 @@
           <button type="button" class="btn primary" id="save-word">${icon('bookmark')} ${entry ? 'Remove word' : 'Save word'}</button>
           <button type="button" class="btn" id="speak-word">${icon('sound')} Hear word</button>
         </div>
+        <p class="note" id="word-audio-status" role="status" aria-live="polite"></p>
         <a class="dictionary-link" href="${attr(url)}" target="_blank" rel="noopener noreferrer">Open online dictionary ${icon('external')}</a>
       </div>
     `;
@@ -919,8 +932,17 @@
       }
       case 'speak-word':
         if (vocabSelected) {
-          const recorded = window.CHAEKSOOP_AUDIO?.words?.[vocabSelected.token] || null;
-          speak(vocabSelected.token, recorded);
+          const word = vocabSelected.token;
+          const recorded = window.CHAEKSOOP_AUDIO?.words?.[word] || null;
+          if (recorded) {
+            showWordAudioStatus('Loading Korean audio…');
+            speak(word, recorded, word);
+          } else if (findBook(readerId)?.kind === 'imported') {
+            showWordAudioStatus('This imported word uses the iPhone voice, which may be silent in Silent Mode.');
+            speak(word);
+          } else {
+            showWordAudioStatus('This recording is missing from the current app update. Reopen 책숲 online.');
+          }
         }
         break;
       case 'backup-export':
