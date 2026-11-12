@@ -63,6 +63,8 @@
   let displayedBookId = null;
   let readerId = null;
   let vocabSelected = null;
+  let flashcardIndex = 0;
+  let flashcardFlipped = false;
   let searchQuery = '';
   let visibleTrans = new Set();
   let speaking = false;
@@ -328,28 +330,152 @@
     }, 0);
   }
 
+
+  // Accessible learner-friendly Korean romanization. This approximates the
+  // spoken word, handling normal vowel linking; actual sound remains in Hear.
+  const KO_ONSETS = ['g','kk','n','d','tt','r','m','b','pp','s','ss','','j','jj','ch','k','t','p','h'];
+  const KO_VOWELS = ['a','ae','ya','yae','eo','e','yeo','ye','o','wa','wae','oe','yo','u','wo','we','wi','yu','eu','ui','i'];
+  const KO_CODAS = ['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  const KO_CODA_SOUNDS = {'ㄱ':'k','ㄲ':'k','ㄳ':'k','ㄴ':'n','ㄵ':'n','ㄶ':'n','ㄷ':'t','ㄹ':'l','ㄺ':'k','ㄻ':'m','ㄼ':'p','ㄽ':'l','ㄾ':'l','ㄿ':'p','ㅀ':'l','ㅁ':'m','ㅂ':'p','ㅄ':'p','ㅅ':'t','ㅆ':'t','ㅇ':'ng','ㅈ':'t','ㅊ':'t','ㅋ':'k','ㅌ':'t','ㅍ':'p','ㅎ':'t'};
+  const KO_ONSET_JAMO = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  const KO_SPLIT_CODAS = {'ㄳ':['ㄱ','ㄱ'],'ㄵ':['ㄴ','ㅈ'],'ㄶ':['ㄴ','ㅎ'],'ㄺ':['ㄹ','ㄱ'],'ㄻ':['ㄹ','ㅁ'],'ㄼ':['ㄹ','ㅂ'],'ㄽ':['ㄹ','ㅅ'],'ㄾ':['ㄹ','ㅌ'],'ㄿ':['ㄹ','ㅍ'],'ㅀ':['ㄹ','ㅎ'],'ㅄ':['ㅂ','ㅅ']};
+
+  function romanizeKorean(input) {
+    const syllables = Array.from(String(input || '').normalize('NFC')).map(letter => {
+      const code = letter.codePointAt(0);
+      if (code < 0xAC00 || code > 0xD7A3) return { raw: letter };
+      const value = code - 0xAC00;
+      return { onset: Math.floor(value / 588), vowel: Math.floor((value % 588) / 28), coda: KO_CODAS[value % 28] };
+    });
+    for (let i = 0; i < syllables.length - 1; i++) {
+      const a = syllables[i], b = syllables[i + 1];
+      if (a.onset === undefined || b.onset === undefined || !a.coda) continue;
+      if (b.onset === 11) {
+        const pair = KO_SPLIT_CODAS[a.coda];
+        if (pair) {
+          a.coda = pair[0];
+          b.onset = KO_ONSET_JAMO.indexOf(pair[1]);
+        } else if (a.coda === 'ㅇ') {
+          // ㅇ is a nasal coda, not a consonant to move.
+        } else if (a.coda === 'ㅎ') {
+          a.coda = '';
+        } else {
+          const nextIndex = KO_ONSET_JAMO.indexOf(a.coda);
+          if (nextIndex >= 0) {
+            b.onset = nextIndex;
+            a.coda = '';
+          }
+        }
+      } else if ([2, 6].includes(b.onset)) {
+        if (['ㄱ','ㄲ','ㄳ','ㄺ','ㅋ'].includes(a.coda)) a.coda = 'ㅇ';
+        else if (['ㄷ','ㅅ','ㅆ','ㅈ','ㅊ','ㅌ','ㅎ'].includes(a.coda)) a.coda = 'ㄴ';
+        else if (['ㅂ','ㅍ','ㅄ','ㄼ'].includes(a.coda)) a.coda = 'ㅁ';
+      }
+    }
+    let result = '';
+    let prevKorean = false;
+    for (const unit of syllables) {
+      if (unit.onset === undefined) {
+        result += unit.raw;
+        prevKorean = false;
+      } else {
+        if (prevKorean) result += '-';
+        result += KO_ONSETS[unit.onset] + KO_VOWELS[unit.vowel] + (KO_CODA_SOUNDS[unit.coda] || '');
+        prevKorean = true;
+      }
+    }
+    return result;
+  }
+
   function renderWords() {
     const words = Object.entries(state.words).sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
     screen.innerHTML = `
       <section>
         <span class="eyebrow">Words</span>
         <h1>나의 단어장</h1>
-        <p class="section-intro">Tap Korean words while reading to save them here.</p>
+        <p class="section-intro">Save Korean words while reading, then practice them here.</p>
       </section>
+      <button type="button" class="big-btn primary flashcard-launch" id="open-flashcards" ${words.length ? '' : 'disabled'}>
+        🐰 Practice flashcards ${icon('right')}
+      </button>
+      <p class="flashcard-intro">${words.length} saved ${words.length === 1 ? 'word' : 'words'} · Tap to flip and learn.</p>
       ${words.length ? `<div class="story-list">${words.map(([word, info]) => `
         <div class="word-card">
-          <div class="row-line"><h3 lang="ko">${escape(word)}</h3><button type="button" class="btn small outline" data-remove-word="${attr(word)}">Remove</button></div>
-          <p>${escape(info.meaning || 'Saved word')}</p>
-          ${info.note ? `<p>${escape(info.note)}</p>` : ''}
+          <div class="row-line">
+            <h3 lang="ko">${escape(word)}</h3>
+            <button type="button" class="btn small outline" data-remove-word="${attr(word)}">Remove</button>
+          </div>
+          <p class="word-romanization">${escape(romanizeKorean(word))}</p>
+          <p>${escape(info.meaning || 'English meaning not saved yet')}</p>
+          <button class="text-link" type="button" data-edit-meaning="${attr(word)}">${info.meaning ? 'Edit meaning' : 'Add English meaning'}</button>
+          ${info.note ? `<p class="word-note">${escape(info.note)}</p>` : ''}
           ${info.context ? `<div class="context" lang="ko">${escape(info.context)}</div>` : ''}
         </div>`).join('')}</div>` : `
         <div class="empty-state">
           <img src="${bunnyImg}" class="big-bunny" alt="Bunny icon">
           <h3>No saved words yet</h3>
-          <p>Open a story and tap a word to start your word list.</p>
+          <p>Open a story and tap a word to save your first flashcard.</p>
           <button type="button" class="btn primary" data-go="library">Go to books</button>
         </div>`}
     `;
+  }
+
+  function renderFlashcards() {
+    const saved = Object.entries(state.words).sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
+    if (!saved.length) { goto('words'); return; }
+    flashcardIndex = Math.max(0, Math.min(flashcardIndex, saved.length - 1));
+    const [word, info] = saved[flashcardIndex];
+    screen.innerHTML = `
+      <section class="flashcard-header">
+        <button type="button" class="btn small outline" data-go="words">${icon('arrow')} Back to Words</button>
+        <span class="eyebrow">🐰 Flashcards</span>
+        <h1>단어 연습</h1>
+        <p class="section-intro">Tap the card to see the English translation. Tap again to flip back.</p>
+      </section>
+      <p class="flashcard-count" aria-live="polite">${flashcardIndex + 1} of ${saved.length}</p>
+      <button type="button" class="flashcard ${flashcardFlipped ? 'is-flipped' : ''}"
+        id="flip-flashcard" aria-pressed="${flashcardFlipped}" aria-label="${flashcardFlipped ? 'Show Korean word' : 'Show English translation'}">
+        <span class="flashcard-inner">
+          <span class="flashcard-face flashcard-front">
+            <span class="flashcard-side-label">KOREAN</span>
+            <span class="flashcard-korean" lang="ko">${escape(word)}</span>
+            <span class="flashcard-pronunciation">${escape(romanizeKorean(word))}</span>
+            <span class="flashcard-flip-hint">${icon('refresh-cw')} Tap to flip</span>
+          </span>
+          <span class="flashcard-face flashcard-back">
+            <span class="flashcard-side-label">ENGLISH</span>
+            <span class="flashcard-english">${escape(info.meaning || 'No English meaning saved yet')}</span>
+            <span class="flashcard-flip-hint">${icon('refresh-cw')} Tap to flip back</span>
+          </span>
+        </span>
+      </button>
+      <div class="flashcard-controls">
+        <button type="button" class="btn outline" id="previous-flashcard" ${flashcardIndex === 0 ? 'disabled' : ''}>${icon('arrow')} Previous</button>
+        <button type="button" class="btn outline" id="hear-flashcard">${icon('sound')} Hear</button>
+        <button type="button" class="btn primary" id="next-flashcard" ${flashcardIndex === saved.length - 1 ? 'disabled' : ''}>Next ${icon('right')}</button>
+      </div>
+      <p class="flashcard-audio-status" id="flashcard-audio-status" role="status" aria-live="polite"></p>
+      <button type="button" class="text-link flashcard-meaning-edit" data-edit-meaning="${attr(word)}">${info.meaning ? 'Edit English meaning' : 'Add English meaning'}</button>
+    `;
+  }
+
+  function editMeaning(word) {
+    const entry = state.words[word];
+    if (!entry) return;
+    $('#word-content').innerHTML = `
+      <div class="word-detail">
+        <div class="dialog-top">
+          <h2 id="word-heading">English meaning</h2>
+          <button class="circle-btn" type="button" data-close-dialog="word-dialog" aria-label="Close">${icon('close')}</button>
+        </div>
+        <p class="flashcard-edit-word" lang="ko">${escape(word)}</p>
+        <label class="flashcard-edit-label" for="edit-word-meaning">Translation</label>
+        <input id="edit-word-meaning" type="text" maxlength="180" value="${attr(entry.meaning || '')}" placeholder="Type the English meaning" autocomplete="off">
+        <button type="button" class="btn primary full" id="save-word-meaning" data-word="${attr(word)}">Save meaning</button>
+      </div>
+    `;
+    $('#word-dialog').showModal();
+    setTimeout(() => $('#edit-word-meaning')?.focus(), 0);
   }
 
   function renderSettings() {
@@ -751,6 +877,15 @@
     stopSpeech();
     document.body.classList.remove('reader-open');
 
+    if (page === 'flashcards') {
+      if (!Object.keys(state.words).length) { goto('words'); return; }
+      routeName = 'flashcards';
+      syncNav('words');
+      renderFlashcards();
+      window.scrollTo(0, 0);
+      return;
+    }
+
     if (page === 'read') {
       const book = findBook(parts[1]);
       if (readable(book)) {
@@ -841,6 +976,10 @@
       }
       return;
     }
+    if (target.dataset.editMeaning) {
+      editMeaning(target.dataset.editMeaning);
+      return;
+    }
     if (target.dataset.removeWord) {
       delete state.words[target.dataset.removeWord];
       save();
@@ -850,6 +989,51 @@
     }
 
     switch (target.id) {
+      case 'open-flashcards':
+        flashcardIndex = 0;
+        flashcardFlipped = false;
+        goto('flashcards');
+        break;
+      case 'flip-flashcard':
+        flashcardFlipped = !flashcardFlipped;
+        target.classList.toggle('is-flipped', flashcardFlipped);
+        target.setAttribute('aria-pressed', String(flashcardFlipped));
+        target.setAttribute('aria-label', flashcardFlipped ? 'Show Korean word' : 'Show English translation');
+        break;
+      case 'next-flashcard':
+        flashcardIndex++;
+        flashcardFlipped = false;
+        renderFlashcards();
+        break;
+      case 'previous-flashcard':
+        flashcardIndex--;
+        flashcardFlipped = false;
+        renderFlashcards();
+        break;
+      case 'hear-flashcard': {
+        const words = Object.entries(state.words).sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
+        const word = words[flashcardIndex]?.[0];
+        if (word) {
+          const recorded = window.CHAEKSOOP_AUDIO?.words?.[word] || null;
+          const status = $('#flashcard-audio-status');
+          if (status) status.textContent = recorded ? 'Playing Korean…' : 'Recording not available for this word.';
+          if (recorded) speak(word, recorded, word);
+        }
+        break;
+      }
+      case 'save-word-meaning': {
+        const word = target.dataset.word;
+        const meaning = ($('#edit-word-meaning')?.value || '').trim();
+        if (!meaning) { toast('Please enter the English meaning.'); break; }
+        if (!state.words[word]) { $('#word-dialog').close(); break; }
+        state.words[word].meaning = meaning;
+        save();
+        $('#word-dialog').close();
+        if (routeName === 'flashcards') renderFlashcards();
+        else renderWords();
+        toast('English meaning saved.');
+        break;
+      }
       case 'top-settings':
         goto('settings');
         break;
