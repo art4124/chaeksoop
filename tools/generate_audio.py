@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 AUDIO = ROOT / "audio"
 STORY_FILE = ROOT / "stories.js"
 VOICE = "ko-KR-SunHiNeural"  # Korean voice used only during audio file build
-CONCURRENCY = 3
+CONCURRENCY = 3  # Limit parallel TTS calls while generating all tapped-word forms
 
 def load_stories():
     content = STORY_FILE.read_text(encoding="utf-8")
