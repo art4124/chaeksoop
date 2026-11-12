@@ -1,5 +1,5 @@
-/* 책숲 v1.5: offline reading + optional cached Korean narration. */
-const SHELL_CACHE = 'chaeksoop-shell-v1.5.0';
+/* 책숲 v1.6: offline reading + optional cached Korean narration. */
+const SHELL_CACHE = 'chaeksoop-shell-v1.6.0';
 const AUDIO_CACHE = 'chaeksoop-korean-audio-v1';
 const SHELL = [
   './',
@@ -7,6 +7,8 @@ const SHELL = [
   './styles.css',
   './app.js',
   './stories.js',
+  './audio/index.js',
+  './audio/files.json',
   './manifest.webmanifest',
   './assets/icon-192.png',
   './assets/icon-512.png'
